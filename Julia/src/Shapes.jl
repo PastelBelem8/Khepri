@@ -1,57 +1,155 @@
+# This file is part of Khepri. License is MIT: https://github.com/PastelBelem8/Khepri/blob/master/LICENSE
+
 using IntervalSets
 using Interpolations
 
-export Shape,
+# Primitives to manipulate Shapes in geometric and analytical backends ##
+
+export @deffamily,
+       @defproxy,
        backend,
+       Backend,
+       bounding_box,
+       collecting_shapes,
+       connection,
+       create_block,
+       create_layer,
        current_backend,
-       switch_to_backend,
-       void_ref,
+       current_layer,
+       curve_domain,
+       delete_all_shapes,
        delete_shape,
        delete_shapes,
-       delete_all_shapes,
-       set_length_unit,
-       collecting_shapes,
-       surface_boundary,
-       curve_domain,
-       surface_domain,
-       create_layer,
-       current_layer,
-       create_block,
-       instantiate_block,
-       reset_backend,
-       connection,
-       immediate_mode,
-       Backend,
-       @deffamily,
-       @defproxy,
        dimension,
        force_creation,
+       immediate_mode,
+       instantiate_block,
+       reset_backend,
+       set_length_unit,
+       Shape,
        subpath,
-       subpath_starting_at,
        subpath_ending_at,
-       bounding_box
+       subpath_starting_at,
+       surface_boundary,
+       surface_domain,
+       switch_to_backend,
+       void_ref
 
-#Backends are types parameterized by a key identifying the backend (e.g., AutoCAD) and by the type of reference they use
+"""
+Backends are types parametrized by a key identifying the backend
+(e.g., AutoCAD) and by the type of reference they use.
+"""
 abstract type Backend{K,R} end
 Base.show{K,R}(io::IO, b::Backend{K,R}) = print(io, "Backend($(K))")
 
-#References can be (single) native references or union or substraction of References
-#Unions and subtractions are needed because actual backends frequently fail those operations
+"""
+References are generic types parametrized by a key identifying the backend
+and by the type of the key specific.
+
+References can be:
+  - (Single) native references
+  - Union of References
+  - Subtraction of References
+
+Union and Subtractions are needed because existing backends frequently fail
+to execute boolean operations.
+
+See also: [`EmptyRef`](@ref), [`NativeRef`](@ref),
+          [`SubtractionRef`](@ref), [`UnionRef`](@ref), [`UniversalRef`](@ref)
+"""
 abstract type GenericRef{K,T} end
 
 struct EmptyRef{K,T} <: GenericRef{K,T} end
 struct UniversalRef{K,T} <: GenericRef{K,T} end
 
+"""
+       NativeRef(i) -> R
+
+Creates a single native reference with value i, representing an unique object
+in the backend. Responsible for realizing the object in the backend.
+
+See also: [`EmptyRef`](@ref), [`GenericRef`](@ref),
+          [`SubtractionRef`](@ref), [`UnionRef`](@ref), [`UniversalRef`](@ref)
+
+# Examples
+```jldoctest
+julia> using Khepri;
+
+julia> abstract type BackendKey end
+
+julia> const BackendId = Int
+Int64
+
+julia> const BackendNativeRef = Khepri.NativeRef{BackendKey, BackendId}
+Khepri.NativeRef{BackendKey,Int64}
+
+julia> BackendNativeRef(-1)
+Khepri.NativeRef{BackendKey,Int64}(-1)
+
+julia> x = BackendNativeRef(-1);
+
+julia> x.value
+-1
+```
+"""
 struct NativeRef{K,T} <: GenericRef{K,T}
   value::T
 end
+
+"""
+       UnionRef((r0, r1, r2...)) -> UR
+
+Creates an union of references to objects in a backend. The objects represented
+by the references will only be joined when strictly necessary, thus preventing
+unexpected conflicts between the objects.
+
+See also: [`EmptyRef`](@ref), [`GenericRef`](@ref),
+          [`NativeRef`](@ref), [`SubtractionRef`](@ref), [`UniversalRef`](@ref)
+
+# Examples
+```jldoctest
+julia> using Khepri;
+
+julia> abstract type BackendKey end;
+
+julia> const BackendId = Int;
+
+julia> const BackendNativeRef = Khepri.NativeRef{BackendKey, BackendId}
+Khepri.NativeRef{BackendKey,Int64}
+
+julia> x, y = BackendNativeRef(0), BackendNativeRef(1)
+(Khepri.NativeRef{BackendKey,Int64}(0), Khepri.NativeRef{BackendKey,Int64}(1))
+
+julia> const BackendUnionRef = Khepri.UnionRef{BackendKey, BackendId}
+Khepri.UnionRef{BackendKey,Int64}
+
+julia> BackendUnionRef((x, y))
+Khepri.UnionRef{BackendKey,Int64}((Khepri.NativeRef{BackendKey,Int64}(0),
+Khepri.NativeRef{BackendKey,Int64}(1)))
+
+julia> u = BackendUnionRef((x, y));
+
+julia> u.values
+((Khepri.NativeRef{BackendKey,Int64}(0), Khepri.NativeRef{BackendKey,Int64}(1))
+
+```
+"""
 struct UnionRef{K,T} <: GenericRef{K,T}
   values::Tuple{Vararg{GenericRef{K,T}}}
 end
+
+"""
+       NativeRef(i) -> R
+
+Subtração entre duas peças. So faz ate ser estritamente necessário.
+"""
 struct SubtractionRef{K,T} <: GenericRef{K,T}
   value::GenericRef{K,T}
   values::Tuple{Vararg{GenericRef{K,T}}}
 end
+
+
+## Comportamento generico p/ refs igual pa todos os backends
 
 ensure_ref{K,T}(b::Backend{K,T}, v::GenericRef{K,T}) =
   v
@@ -69,6 +167,7 @@ map_ref{K,T}(b::Backend{K,T}, f::Function, r::NativeRef{K,T}) = ensure_ref(b, f(
 map_ref{K,T}(b::Backend{K,T}, f::Function, r::UnionRef{K,T}) = UnionRef{K,T}(map(map_ref(b, f), r.values))
 map_ref{K,T}(b::Backend{K,T}, f::Function, r::SubtractionRef{K,T}) = SubtractionRef{K,T}(map_ref(b, f, r.value), map(map_ref(b, f), r.values))
 
+# Colecionar verdadeiras refs que existem
 # currying
 collect_ref{K,T}(b::Backend{K,T}) = r -> collect_ref(b, r)
 
@@ -116,17 +215,26 @@ subtract_ref{K,T}(b::Backend{K,T}, r0::GenericRef{K,T}, r1::UnionRef{K,T}) =
 subtract_ref{K,T}(b::Backend{K,T}, r0::UnionRef{K,T}, r1::GenericRef{K,T}) =
   subtract_ref(b, unite_refs(b, r0), r1)
 
+# K. Lazy ref - backends sao imperativos, cada vez q shape é usada no backend, é consumida.
+# K.
+
 # References need to be created, deleted, and recreated, depending on the way the backend works
 # For example, each time a shape is consumed, it becomes deleted and might need to be recreated
 mutable struct LazyRef{K,R}
-  backend::Backend{K,R}
-  value::GenericRef{K,R}
-  created::Int
-  deleted::Int
+  backend::Backend{K,R} # Ponteiro p/ backend
+  value::GenericRef{K,R} # Sabe qual é a sua referencia
+  # Estatistica - ainda n ta a ser usada
+  # cREATED Tem de star sempre a frente (1 unidade) do deleted, q significa q ainda n foi consumida
+  #
+  created::Int #
+  deleted::Int #
 end
 
 LazyRef{K,R}(backend::Backend{K,R}) = LazyRef{K,R}(backend, void_ref(backend), 0, 0)
 LazyRef{K,R}(backend::Backend{K,R}, v::GenericRef{K,R}) = LazyRef{K,R}(backend, v, 1, 0)
+
+# Objecto c/ dados usados p criar uma shape. Internamente tem a lazy ref
+# Comportamento generico de proxies
 
 abstract type Proxy end
 
@@ -248,6 +356,8 @@ switch_to_backend(from::Backend, to::Backend) = current_backend(to)
 @defop reset_backend()
 @defop save_as(pathname::String, format::String)
 
+# Todos os tipso q herdam de proxu tem um campo chamado ref que foi introduzido por meta programação.
+# Na pratica o q acontece é q ele especializa a função p/ o tipo q criaste.
 macro defproxy(name, parent, fields...)
   name_str = string(name)
   struct_name = esc(Symbol(string(map(ucfirst,split(name_str,'_'))...)))
