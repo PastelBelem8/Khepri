@@ -87,6 +87,7 @@ macro acad_str(str)
 end
 
 # We need some additional Encoders
+# Kat: P/ fazer serializção/desserialização das mensagens trocadas c/ C#
 encode_Entity = encode_int
 decode_Entity = decode_int_or_error
 encode_ObjectId = encode_int
@@ -94,6 +95,7 @@ decode_ObjectId = decode_int_or_error
 encode_ObjectId_array = encode_int_array
 decode_ObjectId_array = decode_int_array
 
+# Read macros do Common Lisp - sao macros mas q operam na leitura.
 acad"public int DeleteAll()"
 acad"public void SetLengthUnit(String unit)"
 acad"public void SetView(Point3d position, Point3d target, double lens, bool perspective, string style)"
@@ -256,13 +258,14 @@ const autocad = ACAD(LazyParameter(TCPSocket, create_ACAD_connection))
 
 #current_backend(autocad)
 
-
+# Muda cor de uma determinada shape.
 backend_stroke_color(b::ACAD, path::Path, color::RGB) =
     let r = backend_stroke(b, path)
         ACADSetShapeColor(connection(b), r, color.r, color.g, color.b)
         r
     end
-
+# Há msimatch q é requerido do lado do Autocad q difere do Khepri.
+# Estes métodos tem logica adicional p/ transformação desses estilos.
 backend_stroke(b::ACAD, path::CircularPath) =
     ACADCircle(connection(b), path.center, vz(1, path.center.cs), path.radius)
 backend_stroke(b::ACAD, path::RectangularPath) =
@@ -302,7 +305,7 @@ backend_stroke_arc(b::ACAD, center::Loc, radius::Real, start_angle::Real, amplit
 backend_stroke_unite(b::ACAD, refs) = ACADJoinCurves(connection(b), refs)
 
 
-
+# Kat: Função materialize vai concretizar as shapes.
 realize(b::ACAD, s::EmptyShape) =
   ACADEmptyRef()
 realize(b::ACAD, s::UniversalShape) =

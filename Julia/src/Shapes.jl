@@ -139,9 +139,16 @@ struct UnionRef{K,T} <: GenericRef{K,T}
 end
 
 """
-       NativeRef(i) -> R
+       SUbtractionRef(i) -> R
 
-Subtração entre duas peças. So faz ate ser estritamente necessário.
+
+Subtracts a reference from a set of references. The object represented
+by the reference will only be subtracted when strictly necessary, thus
+preventing unexpected conflicts between the objects (e.g. subtracting a window
+before the wall is represented).
+
+See also: [`EmptyRef`](@ref), [`GenericRef`](@ref),
+          [`NativeRef`](@ref), [`UnionRef`](@ref), [`UniversalRef`](@ref)
 """
 struct SubtractionRef{K,T} <: GenericRef{K,T}
   value::GenericRef{K,T}
@@ -327,7 +334,11 @@ const current_backend = Parameter{Backend}(Undefined_Backend())
 struct UndefinedBackendException <: Exception end
 Base.show(io::IO, e::UndefinedBackendException) = print(io, "No current backend.")
 
-# Many functions default the backend to the current_backend and throw an error if there is none.
+
+# Kat: Absorve algumas invocações de funções ou a assinatura d uma gunção (tem uma arvore sintatica associada = name_params)
+# Vai buscar os parametros da arvore sintatica e o nome da função. Exporto a função automaticamente.
+
+# Antonio: Many functions default the backend to the current_backend and throw an error if there is none.
 # We will simplify their definition with a macro:
 # @defop delete_all_shapes()
 # that expands into
@@ -430,7 +441,7 @@ curve_interpolator(pts::Locs) =
 evaluate(s::Spline, t::Real) = xyz(s.interpolator()[t], world_cs)
 
 #(def-base-shape 1D-shape (spline* [pts : (Listof Loc) (list (u0) (ux) (uy))] [v0 : (U Boolean Vec) #f] [v1 : (U Boolean Vec) #f]))
-
+# Kat: representa as formas todos, quando construiir uma forma, o proxy devolver um construtor e oprerações p lidar com isto.
 @defproxy(closed_spline, Shape1D, points::Locs=[u0(), ux(), uy()])
 closed_spline(v0, v1, vs...) = closed_spline([v0, v1, vs...])
 @defproxy(circle, Shape1D, center::Loc=u0(), radius::Real=1)
@@ -1256,6 +1267,8 @@ macro deffamily(name, parent, fields...)
     $(predicate_name)(v::Any) = false
     $(map((selector_name, field_name) -> :($(selector_name)(v::$(struct_name)) = v.$(field_name)),
           selector_names, field_names)...)
+
+          # Meta-meta programação, duplo backquote do julia funciona mal. Cria a arvore sintatica a mao.
     Khepri.meta_program(v::$(struct_name)) =
         Expr(:call, $(Expr(:quote, name)), $(map(field_name -> :(meta_program(v.$(field_name))), field_names)...))
   end
