@@ -1,4 +1,4 @@
-# This file is part of Khepri. License is MIT: https://github.com/PastelBelem8/Khepri/blob/master/LICENSE
+# This file is part of Khepri. License is MIT: https://github.com/aptmcl/Khepri/blob/master/LICENSE
 
 using IntervalSets
 using Interpolations
@@ -34,6 +34,9 @@ export @deffamily,
        surface_domain,
        switch_to_backend,
        void_ref
+
+#
+# Backends and References
 
 """
 Backends are types parametrized by a key identifying the backend
@@ -139,7 +142,7 @@ struct UnionRef{K,T} <: GenericRef{K,T}
 end
 
 """
-       SUbtractionRef(i) -> R
+       SubtractionRef(i, I) -> R
 
 
 Subtracts a reference from a set of references. The object represented
@@ -155,9 +158,9 @@ struct SubtractionRef{K,T} <: GenericRef{K,T}
   values::Tuple{Vararg{GenericRef{K,T}}}
 end
 
+# Reference's generic behavior
 
-## Comportamento generico p/ refs igual pa todos os backends
-
+"Returns a reference object for the specified backend."
 ensure_ref{K,T}(b::Backend{K,T}, v::GenericRef{K,T}) =
   v
 ensure_ref{K,T}(b::Backend{K,T}, v::T) =
@@ -167,26 +170,44 @@ ensure_ref{K,T}(b::Backend{K,T}, v::Vector{T}) =
     NativeRef{K,T}(v[1]) :
     UnionRef{K,T}(([NativeRef{K,T}(vi) for vi in v]...))
 
-# currying
+# Currying
 map_ref{K,T}(b::Backend{K,T}, f::Function) = r -> map_ref(b, f, r)
 
-map_ref{K,T}(b::Backend{K,T}, f::Function, r::NativeRef{K,T}) = ensure_ref(b, f(r.value))
-map_ref{K,T}(b::Backend{K,T}, f::Function, r::UnionRef{K,T}) = UnionRef{K,T}(map(map_ref(b, f), r.values))
-map_ref{K,T}(b::Backend{K,T}, f::Function, r::SubtractionRef{K,T}) = SubtractionRef{K,T}(map_ref(b, f, r.value), map(map_ref(b, f), r.values))
+# Applies a function to a reference
+map_ref{K,T}(b::Backend{K,T}, f::Function, r::NativeRef{K,T}) =
+  ensure_ref(b, f(r.value))
 
-# Colecionar verdadeiras refs que existem
-# currying
+map_ref{K,T}(b::Backend{K,T}, f::Function, r::UnionRef{K,T}) =
+  UnionRef{K,T}(map(map_ref(b, f), r.values))
+
+map_ref{K,T}(b::Backend{K,T}, f::Function, r::SubtractionRef{K,T}) =
+  SubtractionRef{K,T}(map_ref(b, f, r.value), map(map_ref(b, f), r.values))
+
+# Currying
 collect_ref{K,T}(b::Backend{K,T}) = r -> collect_ref(b, r)
 
+# Collects the references for a specific backend
 collect_ref{K,T}(b::Backend{K,T}, r::NativeRef{K,T}) = [r.value]
-collect_ref{K,T}(b::Backend{K,T}, r::UnionRef{K,T}) = mapreduce(collect_ref(b), vcat, [], r.values)
-collect_ref{K,T}(b::Backend{K,T}, r::SubtractionRef{K,T}) = vcat(collect_ref(b, r.value), mapreduce(collect_ref(b), vcat, [], r.values))
+collect_ref{K,T}(b::Backend{K,T}, r::UnionRef{K,T}) =
+  mapreduce(collect_ref(b), vcat, [], r.values)
+collect_ref{K,T}(b::Backend{K,T}, r::SubtractionRef{K,T}) =
+  vcat(collect_ref(b, r.value), mapreduce(collect_ref(b), vcat, [], r.values))
 
+"""
+       unite_ref(b, r0, r1) -> r
+
+Returns the union of references `r0` and `r1` in backend `b`. Follows
+the laws of Boolean Algebra and is particularized for different
+combinations of reference concrete types.
+
+The particularization of the union of **NativeRef**s is from the responsibility
+of each backend. See also: [`intersect_ref`](@ref), [`subtract_ref`](@ref)
+"""
 # Boolean algebra laws
 unite_ref{K,T}(b::Backend{K,T}, r0::GenericRef{K,T}, r1::UniversalRef{K,T}) = r1
 unite_ref{K,T}(b::Backend{K,T}, r0::UniversalRef{K,T}, r1::GenericRef{K,T}) = r0
 
-#To avoid ambiguity
+# To avoid ambiguity
 unite_ref{K,T}(b::Backend{K,T}, r0::UnionRef{K,T}, r1::UnionRef{K,T}) =
   unite_ref(b, unite_refs(b, r0), unite_refs(b, r1))
 unite_ref{K,T}(b::Backend{K,T}, r0::EmptyRef{K,T}, r1::EmptyRef{K,T}) = r0
@@ -202,6 +223,12 @@ unite_ref{K,T}(b::Backend{K,T}, r0::UnionRef{K,T}, r1::GenericRef{K,T}) =
 unite_ref{K,T}(b::Backend{K,T}, r0::GenericRef{K,T}, r1::UnionRef{K,T}) =
   unite_ref(b, r0, unite_refs(b, r1))
 
+"""
+       intersect_ref(b, r0, r1) -> r
+
+Returns the intersection of references `r0` and `r1` in `b`. See also:
+[`subtract_ref`](@ref), [`unite_ref`](@ref)
+"""
 intersect_ref{K,T}(b::Backend{K,T}, r0::GenericRef{K,T}, r1::UniversalRef{K,T}) = r0
 intersect_ref{K,T}(b::Backend{K,T}, r0::UniversalRef{K,T}, r1::GenericRef{K,T}) = r1
 intersect_ref{K,T}(b::Backend{K,T}, r0::GenericRef{K,T}, r1::EmptyRef{K,T}) = r1
@@ -211,6 +238,12 @@ intersect_ref{K,T}(b::Backend{K,T}, r0::GenericRef{K,T}, r1::UnionRef{K,T}) =
 intersect_ref{K,T}(b::Backend{K,T}, r0::UnionRef{K,T}, r1::GenericRef{K,T}) =
   intersect_ref(b, unite_refs(b, r0), r1)
 
+"""
+       subtract_ref(b, r0, r1) -> r
+
+Returns the intersection of references `r0` and `r1` in `b`. See also:
+[`intersect_ref`](@ref), [`unite_ref`](@ref)
+"""
 #To avoid ambiguity
 subtract_ref{K,T}(b::Backend{K,T}, r0::UnionRef{K,T}, r1::UnionRef{K,T}) =
   subtract_ref(b, unite_refs(b, r0), unite_refs(b, r1))
@@ -222,27 +255,33 @@ subtract_ref{K,T}(b::Backend{K,T}, r0::GenericRef{K,T}, r1::UnionRef{K,T}) =
 subtract_ref{K,T}(b::Backend{K,T}, r0::UnionRef{K,T}, r1::GenericRef{K,T}) =
   subtract_ref(b, unite_refs(b, r0), r1)
 
-# K. Lazy ref - backends sao imperativos, cada vez q shape é usada no backend, é consumida.
-# K.
+"""
+Lazy References allow to delay the execution of some operations (creation,
+deletion). Backends are usually imperative and, consequently, each time a
+shape is used it is consumed. Thus, **LazyRef**s potentially prevent the
+creation, deletion and recreation of the same Shape object every time an
+a consuming operation is invoked in the backend.
 
-# References need to be created, deleted, and recreated, depending on the way the backend works
-# For example, each time a shape is consumed, it becomes deleted and might need to be recreated
+Each LazyRef object knows the backend it belongs to, the value of its
+reference in the backend and two counters: `created` and `deleted`. A LazyRef
+that has been consumed will have the same value in both counters, i.e.,
+`created = deleted`, whereas a non-consumed reference will have a greater
+value in `created` than in `deleted`.
+"""
 mutable struct LazyRef{K,R}
-  backend::Backend{K,R} # Ponteiro p/ backend
-  value::GenericRef{K,R} # Sabe qual é a sua referencia
-  # Estatistica - ainda n ta a ser usada
-  # cREATED Tem de star sempre a frente (1 unidade) do deleted, q significa q ainda n foi consumida
-  #
-  created::Int #
-  deleted::Int #
+  backend::Backend{K,R}
+  value::GenericRef{K,R}
+  created::Int
+  deleted::Int
 end
 
 LazyRef{K,R}(backend::Backend{K,R}) = LazyRef{K,R}(backend, void_ref(backend), 0, 0)
 LazyRef{K,R}(backend::Backend{K,R}, v::GenericRef{K,R}) = LazyRef{K,R}(backend, v, 1, 0)
 
-# Objecto c/ dados usados p criar uma shape. Internamente tem a lazy ref
-# Comportamento generico de proxies
+# Proxy's Generic Behavior
 
+"Proxy is a representation holding the data and the references necessary to
+create a shape."
 abstract type Proxy end
 
 backend(s::Proxy) = s.ref.backend
@@ -260,11 +299,7 @@ ref(s::Proxy) =
   end
 
 # We can also use a shape as a surrogate for another shape
-
 ensure_ref{K,T}(b::Backend{K,T}, v::Proxy) = ref(v)
-
-
-
 
 #This is a dangerous operation. I'm not sure it should exist.
 set_ref!(s::Proxy, value) = s.ref.value = value
